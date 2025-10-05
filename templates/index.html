@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KV Lie Detector</title>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  body {
+    margin: 0;
+    font-family: 'Poppins', sans-serif;
+    background: radial-gradient(circle at top, #0a0a0a, #000);
+    color: #fff;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-height: 100vh;
+    overflow: hidden;
+    padding: 10px;
+  }
+
+  h1 {
+    margin: 20px 0;
+    font-size: 2em;
+    background: linear-gradient(90deg,#00f5ff,#00ff99);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    text-shadow: 0 0 10px #00f5ff;
+  }
+
+  #progress-bar, #meter-container {
+    width: 90%;
+    max-width: 500px;
+    height: 12px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 10px;
+    overflow: hidden;
+    margin-bottom: 15px;
+    box-shadow: 0 0 8px rgba(0,255,255,0.2);
+  }
+
+  #progress-fill, #meter-fill {
+    height: 100%;
+    width: 0%;
+    border-radius: 10px;
+    transition: width 0.8s ease, background 0.8s ease;
+  }
+
+  #progress-fill { background: linear-gradient(90deg,#00f5ff,#00ff99); }
+  #meter-fill { background: linear-gradient(90deg, red, yellow, lime); }
+
+  #chat {
+    flex: 1;
+    width: 90%;
+    max-width: 500px;
+    background: rgba(255,255,255,0.05);
+    border-radius: 15px;
+    padding: 15px;
+    overflow-y: auto;
+    margin: 10px 0;
+    box-shadow: 0 0 15px rgba(0,255,255,0.2);
+  }
+
+  .msg {
+    margin: 8px 0;
+    padding: 10px 15px;
+    border-radius: 10px;
+    max-width: 80%;
+    animation: fadeIn 0.3s ease;
+  }
+
+  .user { background: rgba(0,255,255,0.2); align-self: flex-end; }
+  .bot { background: rgba(0,255,0,0.2); align-self: flex-start; }
+
+  #controls {
+    width: 90%;
+    max-width: 500px;
+    display: flex;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+
+  input, button {
+    border: none;
+    border-radius: 10px;
+    padding: 10px;
+    background: rgba(255,255,255,0.1);
+    color: #fff;
+  }
+
+  button {
+    background: #00f5ff;
+    color: #000;
+    font-weight: bold;
+    cursor: pointer;
+    transition: 0.3s;
+  }
+  button:hover { background: #00ff99; }
+
+  #contact {
+    margin: 10px;
+  }
+  a { color: #00f5ff; margin: 0 10px; text-decoration: none; }
+
+  #sound-toggle {
+    position: absolute;
+    top: 10px;
+    right: 15px;
+    cursor: pointer;
+    font-size: 1.3em;
+  }
+
+  #final-summary {
+    margin-top: 20px;
+    width: 90%;
+    max-width: 500px;
+    background: rgba(0,255,0,0.05);
+    padding: 15px;
+    border-radius: 15px;
+    box-shadow: 0 0 10px rgba(0,255,0,0.2);
+  }
+
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+</style>
+</head>
+<body>
+
+<div id="sound-toggle">🔊</div>
+<h1>🤖 KV Lie Detector</h1>
+
+<div id="progress-bar"><div id="progress-fill"></div></div>
+<div id="meter-container"><div id="meter-fill"></div></div>
+<div id="chat"></div>
+
+<div id="controls">
+  <input type="text" id="userInput" placeholder="Type your answer..." />
+  <button onclick="sendMessage()">Send</button>
+</div>
+
+<div id="contact">
+  <a href="mailto:kariosvantari@gmail.com">📧 Email</a>
+  <a href="https://wa.me/2348089368681">💬 WhatsApp</a>
+</div>
+
+<audio id="beep" src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg"></audio>
+
+<div id="final-summary" style="display:none;"></div>
+
+<script>
+const chat = document.getElementById("chat");
+const input = document.getElementById("userInput");
+const meter = document.getElementById("meter-fill");
+const progressFill = document.getElementById("progress-fill");
+const beep = document.getElementById("beep");
+const soundToggle = document.getElementById("sound-toggle");
+const summaryDiv = document.getElementById("final-summary");
+
+let soundOn = true;
+soundToggle.addEventListener("click", ()=>{
+    soundOn = !soundOn;
+    soundToggle.textContent = soundOn ? "🔊" : "🔈";
+});
+
+let currentQuestion = "";
+let totalQuestions = 0;
+let questionIndex = 0;
+
+// Initialize first question
+async function init() {
+    const res = await fetch("/next");
+    const data = await res.json();
+    if(data.done){
+        addMessage("Session complete ✅", "bot");
+        return;
+    }
+    currentQuestion = data.question;
+    questionIndex = data.index;
+    totalQuestions = data.total;
+    addMessage("Question "+questionIndex+"/"+totalQuestions+": "+currentQuestion, "bot");
+}
+init();
+
+function addMessage(text, cls){
+    const div = document.createElement("div");
+    div.classList.add("msg", cls);
+    div.textContent = text;
+    chat.appendChild(div);
+    chat.scrollTop = chat.scrollHeight;
+    return div;
+}
+
+async function sendMessage(){
+    const answer = input.value.trim();
+    if(!answer) return;
+    addMessage(answer,"user");
+    input.value = "";
+
+    const analyzingMsg = addMessage("Analyzing...","bot");
+    if(soundOn) beep.play();
+
+    const res = await fetch("/answer",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({answer})
+    });
+    const data = await res.json();
+    analyzingMsg.textContent = data.verdict || "Offline verdict ⚠️";
+
+    // Update truth meter
+    let truthPercent = 0;
+    if(data.verdict){
+        if(data.verdict.includes("Truthful")) truthPercent = 90;
+        else if(data.verdict.includes("Suspicious")) truthPercent = 50;
+        else if(data.verdict.includes("Lying")) truthPercent = 10;
+        else truthPercent = Math.floor(Math.random()*100);
+    }
+    meter.style.width = truthPercent+"%";
+    if(truthPercent<35) meter.style.background="red";
+    else if(truthPercent<70) meter.style.background="yellow";
+    else meter.style.background="lime";
+
+    // Update progress bar
+    const progress = data.progress || questionIndex;
+    progressFill.style.width = (progress/totalQuestions*100)+"%";
+
+    if(data.done){
+        showFinalSummary(data.summary);
+    } else {
+        // Load next question
+        const nextRes = await fetch("/next");
+        const nextData = await nextRes.json();
+        currentQuestion = nextData.question;
+        questionIndex = nextData.index;
+        addMessage("Question "+questionIndex+"/"+totalQuestions+": "+currentQuestion, "bot");
+    }
+}
+
+function showFinalSummary(summary){
+    if(!summary) return;
+    let html = "<h2>🎉 Session Complete!</h2>";
+    html += "<p>Honesty Percent: "+summary.honesty_percent+"%</p>";
+    html += "<ul>";
+    for(const key in summary.counts){
+        html += `<li>${key}: ${summary.counts[key]}</li>`;
+    }
+    html += "</ul>";
+    summaryDiv.innerHTML = html;
+    summaryDiv.style.display = "block";
+    addMessage("Check your honesty summary below ⬇️", "bot");
+}
+</script>
+
+</body>
+</html>

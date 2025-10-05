@@ -1,0 +1,8 @@
+# Flask for web server
+Flask>=2.3.0
+
+# Groq SDK (optional, will fallback to requests if not installed)
+groq>=0.1.4
+
+# Requests library for HTTP fallback
+requests>=2.31.0
