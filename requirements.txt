@@ -6,3 +6,5 @@ groq>=0.1.4
 
 # Requests library for HTTP fallback
 requests>=2.31.0
+
+gunicorn
