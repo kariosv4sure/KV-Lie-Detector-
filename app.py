@@ -1,14 +1,7 @@
 from flask import Flask, render_template, request, jsonify
 import os
 import random
-
-# Try importing Groq SDK, fallback to requests if unavailable
-try:
-    import groq
-    HAS_GROQ_SDK = True
-except ImportError:
-    import requests
-    HAS_GROQ_SDK = False
+import requests
 
 app = Flask(__name__)
 
@@ -17,7 +10,7 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 if not GROQ_API_KEY:
     raise RuntimeError("⚠️ Missing GROQ_API_KEY. Set it using: export GROQ_API_KEY='your_key_here'")
 
-# 🎯 Question pool (expandable to 30+ questions)
+# 🎯 Question pool (expandable)
 QUESTIONS = [
     "Did you really wake up on time today?",
     "Have you lied to someone recently?",
@@ -51,57 +44,38 @@ QUESTIONS = [
     "Have you ever faked being sick?"
 ]
 
-SESSION_QUESTIONS = 30  # how many questions per session
-
-# Store session data in memory (for simplicity)
-SESSIONS = {}
+SESSION_QUESTIONS = 30  # questions per session
+SESSIONS = {}  # store sessions in memory keyed by IP
 
 def ask_groq(question, answer):
-    """Ask Groq API via SDK or requests with fallback."""
+    """Send question & answer to Groq API via requests and return verdict."""
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json"
+    }
     system_msg = (
         "You are KV Lie Analyzer — a smart AI lie detector. "
         "Judge honesty based on tone, logic, and emotion. "
-        "Respond with one verdict ONLY: 'Truthful ✅', 'Suspicious 😶', or 'Lying 🤥'."
+        "Respond with only one verdict: 'Truthful ✅', 'Suspicious 😶', or 'Lying 🤥'."
     )
-
-    if HAS_GROQ_SDK:
-        try:
-            client = groq.Client(api_key=GROQ_API_KEY)
-            response = client.chat.create(
-                model="llama3-8b-8192",
-                messages=[
-                    {"role": "system", "content": system_msg},
-                    {"role": "user", "content": f"Question: {question}\nAnswer: {answer}"}
-                ],
-                temperature=0.5
-            )
-            return response.choices[0].message.content.strip()
-        except Exception as e:
-            print("🚨 Groq SDK Error:", e)
-            return "Offline verdict ⚠️"
-    else:
-        # fallback to requests
-        url = "https://api.groq.com/openai/v1/chat/completions"
-        headers = {
-            "Authorization": f"Bearer {GROQ_API_KEY}",
-            "Content-Type": "application/json"
-        }
-        payload = {
-            "model": "llama3-8b-8192",
-            "messages": [
-                {"role": "system", "content": system_msg},
-                {"role": "user", "content": f"Question: {question}\nAnswer: {answer}"}
-            ],
-            "temperature": 0.5
-        }
-        try:
-            res = requests.post(url, headers=headers, json=payload, timeout=20)
-            res.raise_for_status()
-            data = res.json()
-            return data["choices"][0]["message"]["content"].strip()
-        except Exception as e:
-            print("🚨 Groq HTTP Error:", e)
-            return "Offline verdict ⚠️"
+    payload = {
+        "model": "llama3-8b-8192",
+        "messages": [
+            {"role": "system", "content": system_msg},
+            {"role": "user", "content": f"Question: {question}\nAnswer: {answer}"}
+        ],
+        "temperature": 0.5
+    }
+    try:
+        res = requests.post(url, headers=headers, json=payload, timeout=20)
+        res.raise_for_status()
+        data = res.json()
+        return data["choices"][0]["message"]["content"].strip()
+    except Exception as e:
+        print("🚨 Groq HTTP Error:", e)
+        # fallback offline verdict (random)
+        return random.choice(["Truthful ✅", "Suspicious 😶", "Lying 🤥"])
 
 @app.route("/")
 def home():
@@ -109,22 +83,20 @@ def home():
 
 @app.route("/next", methods=["GET"])
 def next_question():
-    """Serve next question in session."""
+    """Serve the next question for the session."""
     session_id = request.remote_addr
     if session_id not in SESSIONS:
         # Initialize session
-        selected = random.sample(QUESTIONS, SESSION_QUESTIONS)
+        selected_questions = random.sample(QUESTIONS, SESSION_QUESTIONS)
         SESSIONS[session_id] = {
-            "questions": selected,
+            "questions": selected_questions,
             "answers": [],
             "index": 0
         }
-
     session = SESSIONS[session_id]
     idx = session["index"]
     if idx >= len(session["questions"]):
         return jsonify({"done": True})
-
     question = session["questions"][idx]
     return jsonify({
         "question": question,
@@ -135,7 +107,7 @@ def next_question():
 
 @app.route("/answer", methods=["POST"])
 def handle_answer():
-    """Receive answer, analyze, update session."""
+    """Receive user's answer, get verdict, update session, return progress."""
     session_id = request.remote_addr
     if session_id not in SESSIONS:
         return jsonify({"error": "Session not started"}), 400
@@ -153,11 +125,10 @@ def handle_answer():
 
     session["answers"].append({"question": question, "answer": answer, "verdict": verdict})
     session["index"] += 1
-
     done = session["index"] >= len(session["questions"])
     progress = session["index"]
 
-    # If done, calculate final summary
+    # If done, compute final summary
     final_summary = None
     if done:
         counts = {"Truthful ✅": 0, "Suspicious 😶": 0, "Lying 🤥": 0}
